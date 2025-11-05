@@ -1,0 +1,206 @@
+# CodeBuilder Class
+
+## Overview
+
+`CodeBuilder` is a small utility for programmatically building source code or other structured text with correct indentation and line handling. It is designed to be simple, predictable, and fast, making it especially handy inside Roslyn Source Generators and other code‑gen tools.
+
+- Namespace: `FireblightStudios.Common`
+- Type: `public class CodeBuilder`
+
+## Quick start
+
+```csharp
+using FireblightStudios.Common;
+
+var cb = new CodeBuilder()
+    .AppendLine("namespace Demo")
+    .EnterScope("public static class Greeter")
+        .EnterScope("public static string SayHi(string name)")
+            .AppendLine("return \"Hello, \" + name + \"!\";")
+        .LeaveScope()
+    .LeaveScope();
+
+string code = cb.ToString();
+```
+
+Produces:
+
+```
+namespace Demo
+{
+    public static class Greeter
+    {
+        public static string SayHi(string name)
+        {
+            return "Hello, " + name + "!";
+        }
+    }
+}
+```
+
+## Design highlights
+
+- Automatic indentation: indentation is only added when the builder is at a new line (`IsNewLine == true`).
+- Multi‑line aware: both `Append` and `AppendLine(string)` split on newlines and indent each logical line as needed.
+- Fluent API: all mutating methods return `this` for chaining.
+- Configurable style: choose spaces or tabs (or any char), and how many per level.
+
+---
+
+## API reference
+
+### Constructors
+
+- `CodeBuilder()`
+  - Creates an empty builder.
+
+- `CodeBuilder(string startingText)`
+  - Initializes the builder with `startingText` (kept as‑is). Useful when you already have a header or prologue.
+
+### Properties
+
+- `int IndentationLevel { get; set; }`
+  - Current number of indentation levels applied when writing at the start of a line.
+  - Must be `>= 0`; setting a negative value throws `ArgumentOutOfRangeException`.
+  - Default: `0`.
+
+- `int IndentationChars { get; set; }`
+  - Number of `IndentationChar` characters per indentation level.
+  - Must be `>= 0`; setting a negative value throws `ArgumentOutOfRangeException`.
+  - Default: `4`.
+
+- `char IndentationChar { get; set; }`
+  - The character used for indentation. Configure spaces or tabs (or even other characters).
+  - Default: `' '` (space).
+
+- `bool IsNewLine { get; }`
+  - True if the internal buffer is empty or the last written character is a newline `\n`.
+  - Implementation note: `.AppendLine()` uses `Environment.NewLine`, so on Windows this is `\r\n`. The property checks only the last char (`\n`), which correctly covers both `\n` and `\r\n` line breaks.
+
+### Methods
+
+- `CodeBuilder IncreaseIndentation()`
+  - Increments `IndentationLevel` by 1.
+
+- `CodeBuilder DecreaseIndentation()`
+  - Decrements `IndentationLevel` by 1, but never below 0.
+
+- `CodeBuilder AppendLine()`
+  - Appends a platform line terminator (`Environment.NewLine`).
+
+- `CodeBuilder AppendLine(string text)`
+  - Appends `text` followed by a line terminator. If `text` contains embedded newlines, each logical line is correctly indented.
+  - Behavior:
+    - If the builder is at a new line, indentation for the current `IndentationLevel` is written first.
+    - `\r` is stripped; splitting is done by `\n`.
+
+- `CodeBuilder Append(string text)`
+  - Appends `text` without forcing a trailing newline. If `text` contains embedded newlines, all but the last logical line end with a newline; the last line remains unterminated. Indentation for each line is applied only when writing at a new line.
+
+- `CodeBuilder EnterScope(string text)`
+  - A convenience for writing a scoped code block. Equivalent to:
+    ```csharp
+    AppendLine(text)
+    .AppendLine("{")
+    .IncreaseIndentation();
+    ```
+
+- `CodeBuilder LeaveScope()`
+  - Closes a previously opened scope. Equivalent to:
+    ```csharp
+    DecreaseIndentation()
+    .AppendLine("}");
+    ```
+
+- `override string ToString()`
+  - Returns the accumulated text.
+
+- `CodeBuilder Clear()`
+  - Clears the internal buffer and returns the same instance so you can reuse it.
+
+---
+
+## Usage examples
+
+### 1) Generate a simple class with a method
+```csharp
+var cb = new CodeBuilder();
+cb.AppendLine("namespace Demo")
+  .EnterScope("public sealed class Person")
+    .AppendLine("public string Name { get; }")
+    .EnterScope("public Person(string name)")
+      .AppendLine("Name = name;")
+    .LeaveScope()
+  .LeaveScope();
+
+Console.WriteLine(cb.ToString());
+```
+
+### 2) Multi‑line input handled gracefully
+```csharp
+var cb = new CodeBuilder();
+cb.Append("int x = 1;\nint y = 2;\n") // last line remains unterminated
+  .AppendLine("int z = x + y;");
+```
+
+Output:
+```
+int x = 1;
+int y = 2;
+int z = x + y;
+```
+
+### 3) Custom indentation style (tabs)
+```csharp
+var cb = new CodeBuilder
+{
+    IndentationChar = '\t',
+    IndentationChars = 1
+};
+
+cb.EnterScope("if (flag)")
+    .AppendLine("DoWork();")
+  .LeaveScope();
+```
+
+### 4) Starting with existing text
+```csharp
+var cb = new CodeBuilder("// <auto-generated/>\n");
+cb.AppendLine("namespace Generated").EnterScope("static class Info")
+  .AppendLine("public const string Version = \"1.0\";")
+  .LeaveScope().LeaveScope();
+```
+
+### 5) Manually managing scopes without `EnterScope`
+```csharp
+var cb = new CodeBuilder();
+cb.AppendLine("try")
+  .AppendLine("{")
+  .IncreaseIndentation()
+    .AppendLine("DangerousCall();")
+  .DecreaseIndentation()
+  .AppendLine("}")
+  .AppendLine("catch (Exception ex)")
+  .EnterScope("{")
+    .AppendLine("Log(ex);")
+  .LeaveScope();
+```
+
+---
+
+## Tips and notes
+
+- Indentation is only applied when writing at a new line. If you call `Append("foo")` and then `Append("bar")` without a newline between them, no indentation will be added between the two.
+- You can mix `Append` and `AppendLine` freely; the `IsNewLine` property tells you whether the next write will be indented.
+- `Clear()` lets you reuse the same instance to reduce allocations during large code‑gen runs.
+
+## When to use `CodeBuilder`
+
+- Generating C# syntax from higher‑level models (e.g., inside a source generator).
+- Emitting structured configuration files or templated text where indentation matters.
+- Building diagnostic messages that contain formatted blocks of code.
+
+## Limitations
+
+- The builder does not attempt to enforce language syntax; it only manages text, indentation, and line breaks.
+- Indentation is based on a single repeated character; if you need mixed indentation (e.g., tabs plus spaces), emit it manually or adjust `IndentationChar`/`IndentationChars` per block.
