@@ -66,5 +66,5 @@ upload-stage:
       when: on_success
   script:
     - dotnet nuget push out/packages/*.nupkg --api-key $CI_JOB_TOKEN --source "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/nuget/index.json" --skip-duplicate
-
+    - dotnet nuget push out/packages/*.nupkg --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
   
